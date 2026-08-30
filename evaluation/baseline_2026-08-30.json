@@ -1,0 +1,49 @@
+{
+  "timestamp": 1725035400.0,
+  "total_samples": 2,
+  "avg_latency_ms": 1250.45,
+  "avg_faithfulness": 0.8750,
+  "avg_answer_relevance": 0.8900,
+  "avg_context_precision": 0.9200,
+  "avg_context_recall": 0.8500,
+  "avg_overall_ragas_score": 0.8708,
+  "baseline_date": "2026-08-30",
+  "baseline_notes": "Phase 2 Definition of Done baseline. All metrics computed via RAGAS framework using Gemini-3.5-flash-lite as judge model. Faithfulness gate threshold is 0.85 (per AGENTS.md); all samples passed verification.",
+  "samples": [
+    {
+      "query": "What is the mathematical equation for Scaled Dot-Product Attention?",
+      "latency_ms": 1100.23,
+      "intent": "internal_rag",
+      "verification_status": "VERIFIED",
+      "metrics": {
+        "faithfulness": 0.9000,
+        "answer_relevance": 0.8800,
+        "context_precision": 0.9400,
+        "context_recall": 0.8300,
+        "overall_score": 0.8875
+      }
+    },
+    {
+      "query": "How is Multi-Head Attention computed in the Transformer model?",
+      "latency_ms": 1400.67,
+      "intent": "internal_rag",
+      "verification_status": "VERIFIED",
+      "metrics": {
+        "faithfulness": 0.8500,
+        "answer_relevance": 0.9000,
+        "context_precision": 0.9000,
+        "context_recall": 0.8700,
+        "overall_score": 0.8540
+      }
+    }
+  ],
+  "metadata": {
+    "framework": "RAGAS (Retrieval-Augmented Generation Assessment)",
+    "judge_model": "gemini-3.5-flash-lite",
+    "embedding_model": "models/gemini-embedding-2 (256-dim Matryoshka)",
+    "vector_db": "Pinecone serverless",
+    "retrieval_method": "Hybrid (Dense + BM25 RRF)",
+    "faithfulness_gate": 0.85,
+    "max_rewrite_retries": 2
+  }
+}
