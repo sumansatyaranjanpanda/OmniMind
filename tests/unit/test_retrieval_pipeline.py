@@ -139,3 +139,40 @@ async def test_cache_is_bounded_and_evicts_oldest_first():
 
     assert len(pinecone_client._QUERY_EMBED_CACHE) == pinecone_client._QUERY_EMBED_CACHE_MAX
     assert "k0" not in pinecone_client._QUERY_EMBED_CACHE
+
+
+# ── Pinecone metadata size guard (added 2026-09-18) ─────────────
+
+
+def test_oversized_chunk_text_is_truncated_not_rejected():
+    """One oversized chunk used to 400 the entire batch upsert, failing every
+    chunk alongside it rather than just itself."""
+    from retrieval.pinecone_client import (
+        PINECONE_METADATA_LIMIT_BYTES,
+        _sanitize_metadata,
+    )
+
+    meta = {"text": "x" * 200_000, "document_id": "doc-1", "section": "Body"}
+    cleaned = _sanitize_metadata(meta)
+
+    total = sum(
+        len(str(k).encode()) + len(str(v).encode()) for k, v in cleaned.items()
+    )
+    assert total < PINECONE_METADATA_LIMIT_BYTES
+    assert cleaned["document_id"] == "doc-1"
+
+
+def test_normal_chunk_text_is_left_alone():
+    from retrieval.pinecone_client import _sanitize_metadata
+
+    body = "A normal passage about hybrid retrieval."
+    assert _sanitize_metadata({"text": body})["text"] == body
+
+
+def test_truncation_never_splits_a_multibyte_character():
+    """The limit is bytes; a cut landing mid-codepoint must not raise or corrupt."""
+    from retrieval.pinecone_client import _sanitize_metadata
+
+    cleaned = _sanitize_metadata({"text": "\u00e9" * 100_000})
+    assert isinstance(cleaned["text"], str)
+    cleaned["text"].encode("utf-8")  # re-encodes cleanly

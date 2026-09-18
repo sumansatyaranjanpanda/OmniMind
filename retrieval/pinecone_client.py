@@ -78,11 +78,24 @@ async def close_async_index() -> None:
         _async_index = None
 
 
+# Pinecone rejects any vector whose metadata exceeds 40,960 bytes. Budget slightly
+# under it so the non-text fields (document_id, page, section, source_type…) always
+# have room after the text has been fitted.
+PINECONE_METADATA_LIMIT_BYTES = 40_960
+_METADATA_BUDGET_BYTES = 38_000
+
+
 def _sanitize_metadata(meta: dict[str, Any]) -> dict[str, Any]:
-    """Sanitize metadata for Pinecone.
+    """Sanitize metadata for Pinecone: correct types, and within the size limit.
 
     Pinecone strictly requires values to be string, number, boolean, or list of strings.
     None/null values cause a 400 Bad Request error.
+
+    The size clamp is a backstop, not the primary defence — chunking/strategies.py
+    sizes chunks so this never triggers. It exists because the failure it prevents is
+    disproportionate: one oversized chunk 400s the entire batch upsert, so a single bad
+    document fails ingestion for every chunk alongside it rather than just itself.
+    Truncating costs the tail of one passage; raising costs the whole document.
     """
     cleaned: dict[str, Any] = {}
     for k, v in meta.items():
@@ -94,6 +107,30 @@ def _sanitize_metadata(meta: dict[str, Any]) -> dict[str, Any]:
             cleaned[k] = v
         else:
             cleaned[k] = str(v)
+
+    text = cleaned.get("text")
+    if isinstance(text, str):
+        # Measured in bytes, not characters: the limit is bytes, and non-ASCII text
+        # costs up to 4 bytes per character, so a character-based cap would still
+        # overshoot on exactly the documents most likely to be long.
+        other_bytes = sum(
+            len(str(k).encode("utf-8")) + len(str(val).encode("utf-8"))
+            for k, val in cleaned.items()
+            if k != "text"
+        )
+        available = _METADATA_BUDGET_BYTES - other_bytes
+        encoded = text.encode("utf-8")
+        if available > 0 and len(encoded) > available:
+            # Decode with errors="ignore" so a cut landing mid-codepoint drops that
+            # partial character instead of raising.
+            cleaned["text"] = encoded[:available].decode("utf-8", errors="ignore")
+            logger.warning(
+                "Chunk text truncated to fit Pinecone's metadata limit",
+                original_bytes=len(encoded),
+                kept_bytes=available,
+                chunk_id=cleaned.get("chunk_id"),
+            )
+
     return cleaned
 
 

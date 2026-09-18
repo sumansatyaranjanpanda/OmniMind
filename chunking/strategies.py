@@ -1,15 +1,33 @@
 """Chunking strategies for processed documents.
 
-Uses LangChain's MarkdownHeaderTextSplitter to chunk text based on structure,
-and creates separate chunks for figure captions with full provenance metadata.
+Splits on markdown structure first, then by size, and creates separate chunks for
+figure captions with full provenance metadata.
+
+The size pass is not a refinement — it is load-bearing. Structure-only splitting
+assumes the document HAS structure, and silently produces one chunk containing the
+entire document when it doesn't: a prose PDF, a scanned report, anything Docling
+renders without `#` headings. Confirmed 2026-09-18 against a real PDF, which parsed
+to a single 211KB chunk. That breaks three things at once — the embedding model
+truncates at its token limit so most of the document is never represented, retrieval
+precision collapses because the only retrievable unit is "the whole document", and
+Pinecone rejects the upsert outright (metadata capped at 40,960 bytes per vector),
+so ingestion fails rather than degrading.
 """
 import hashlib
 from uuid import UUID
 
-from langchain_text_splitters import MarkdownHeaderTextSplitter
+from chunking.splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
 from api.schemas.ingestion import Chunk
 from parsing.parsers import FigureCaption
+
+# Sized to sit comfortably under both hard limits it has to respect: the embedding
+# model's input window, and Pinecone's 40,960-byte metadata ceiling (the chunk text
+# travels in metadata so it can be returned with a citation). Small enough that a
+# retrieved passage is precise rather than a page of mixed topics; the overlap keeps
+# a fact that straddles a boundary from being cut in half.
+MAX_CHUNK_CHARS = 1800
+CHUNK_OVERLAP_CHARS = 200
 
 
 def _body_without_headings(text: str) -> str:
@@ -17,6 +35,24 @@ def _body_without_headings(text: str) -> str:
     return "\n".join(
         line for line in text.splitlines() if not line.lstrip().startswith("#")
     ).strip()
+
+
+def _split_oversized(text: str) -> list[str]:
+    """Split on natural boundaries — paragraph, line, sentence, word — largest first.
+
+    Returns a single-element list when the text already fits, so the common case of a
+    well-structured document is untouched and keeps its section-aligned chunks.
+    """
+    if len(text) <= MAX_CHUNK_CHARS:
+        return [text]
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=MAX_CHUNK_CHARS,
+        chunk_overlap=CHUNK_OVERLAP_CHARS,
+        separators=["\n\n", "\n", ". ", " ", ""],
+        length_function=len,
+    )
+    return [piece for piece in splitter.split_text(text) if piece.strip()]
 
 
 def chunk_markdown(
@@ -80,24 +116,30 @@ def chunk_markdown(
             context_parts.append(document_title)
         if section and section != "Document Root":
             context_parts.append(section)
-        contextual_text = (
-            f"[{' | '.join(context_parts)}]\n{text}" if context_parts else text
-        )
+        prefix = f"[{' | '.join(context_parts)}]\n" if context_parts else ""
 
-        # Generate deterministic chunk ID
-        hash_input = f"{document_id}_{i}_{text}".encode("utf-8")
-        chunk_id = hashlib.sha256(hash_input).hexdigest()[:16]
+        # Every piece carries the document/section prefix, not just the first. A
+        # sub-chunk from the middle of a section is exactly the case that loses its
+        # subject otherwise — which is the problem the prefix exists to solve.
+        for j, piece in enumerate(_split_oversized(text)):
+            contextual_text = f"{prefix}{piece}"
 
-        chunk = Chunk(
-            chunk_id=chunk_id,
-            document_id=document_id,
-            text=contextual_text,
-            section=section,
-            source_type=source_type,
-            content_type="text",
-            parent_element=f"chunk_{i}",
-        )
-        chunks.append(chunk)
+            # Deterministic, and distinct per sub-piece: keying the hash on `i` alone
+            # would give every piece of one section the same id, and each upsert would
+            # overwrite the last — silently keeping only the final piece.
+            hash_input = f"{document_id}_{i}_{j}_{piece}".encode("utf-8")
+            chunk_id = hashlib.sha256(hash_input).hexdigest()[:16]
+
+            chunk = Chunk(
+                chunk_id=chunk_id,
+                document_id=document_id,
+                text=contextual_text,
+                section=section,
+                source_type=source_type,
+                content_type="text",
+                parent_element=f"chunk_{i}_{j}",
+            )
+            chunks.append(chunk)
 
     return chunks
 

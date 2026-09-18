@@ -37,7 +37,10 @@ dependencies = [
     "langfuse>=2.0.0",
     "langgraph>=0.2.0",
     "duckduckgo-search>=6.0.0",
-    "langchain-text-splitters>=0.2.0",
+    # langchain-text-splitters removed 2026-09-18: its package __init__ eagerly
+    # imports a sentence-transformers splitter, pulling PyTorch into memory (453 MB
+    # resident) purely to split strings. chunking/splitters.py implements the two
+    # splitters this project actually used.
     "networkx>=3.0",
 ]
 

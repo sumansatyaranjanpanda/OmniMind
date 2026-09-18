@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # ── Redis ───────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 
+    # ── Object storage ──────────────────────────────────────────
+    # "s3" uses the MinIO/S3 settings below. "local" writes to storage_local_path
+    # instead, which is what lets a single-node deployment run with no object-storage
+    # service at all. "s3" additionally falls back to local on its own if no endpoint
+    # answers at startup — see api/storage.py:ensure_bucket.
+    storage_backend: str = "s3"
+    storage_local_path: str = "./data/objects"
+
     # ── MinIO ───────────────────────────────────────────────────
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"

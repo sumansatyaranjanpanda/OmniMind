@@ -18,10 +18,13 @@ os.environ["TORCH_COMPILE_DISABLE"] = "1"
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from api.cache import redis_client, redis_ping
@@ -134,3 +137,54 @@ app.include_router(chat_stream.router)
 app.include_router(conversations.router)
 app.include_router(graph.router)
 app.include_router(voice.router)
+
+# ── Frontend (single-origin deployment) ─────────────────────────
+# When a built frontend is present, this process serves it from the same origin as
+# the API. That is what makes a one-container deployment possible, and it sidesteps
+# CORS entirely — the browser only ever talks to one host, so cors_allow_origins
+# stops being a thing a deployment can get wrong and be mysteriously broken by.
+#
+# Absent in local development, where Vite serves the frontend on :5173 and proxies
+# to this API, so the block below simply doesn't engage.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+# Paths owned by the API. A request under one of these that reached the catch-all
+# matched no route, and must 404 as JSON rather than being handed the SPA shell —
+# a client calling a mistyped endpoint should see an error, not 200 OK and HTML.
+_API_PREFIXES = (
+    "health", "auth", "documents", "search", "chat",
+    "conversations", "graph", "voice", "docs", "redoc", "openapi.json",
+)
+
+if _FRONTEND_DIST.is_dir():
+    _assets = _FRONTEND_DIST / "assets"
+    if _assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+    # response_model=None because the return annotation is a union of two Response
+    # types. FastAPI otherwise tries to build a Pydantic response model from it and
+    # refuses at import time with "Invalid args for response field", which takes the
+    # whole process down at startup rather than failing on a request.
+    @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
+    async def serve_frontend(full_path: str) -> FileResponse | JSONResponse:
+        """Serve built assets, falling back to index.html so client routing works.
+
+        Registered last on purpose: Starlette matches routes in registration order,
+        so every API route above still wins. Only genuinely unmatched paths land here.
+        """
+        if full_path.split("/", 1)[0] in _API_PREFIXES:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+        candidate = (_FRONTEND_DIST / full_path).resolve()
+        # Containment check, not a convenience: without it a crafted path like
+        # ../../etc/passwd would escape the dist directory and serve arbitrary
+        # files off the container filesystem.
+        if (
+            full_path
+            and candidate.is_file()
+            and candidate.is_relative_to(_FRONTEND_DIST.resolve())
+        ):
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")
+
+    logger.info("frontend_static_serving_enabled", path=str(_FRONTEND_DIST))

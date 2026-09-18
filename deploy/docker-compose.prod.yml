@@ -1,0 +1,102 @@
+# OmniMind — production stack for a single VPS.
+#
+# Differs from the MVP single-container image in the ways that matter for something
+# that is meant to keep running: Postgres is a real service on a named volume rather
+# than living inside the app container, Redis is present so the semantic cache and
+# rate limiting survive a restart, uploaded files sit on a volume instead of a
+# container layer, and Caddy terminates TLS with certificates it renews itself.
+#
+# Because DATABASE_URL is set here, scripts/start.sh skips its in-container Postgres
+# entirely and uses this one — see the guard at the top of that script.
+
+name: omnimind
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates and ACME account — losing this means
+      - caddy_config:/config  # re-issuing certs and risking Let's Encrypt rate limits
+    depends_on:
+      - api
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL in .env}
+
+  api:
+    image: ${IMAGE:-omnimind:prod}
+    restart: unless-stopped
+    # Not published to the host: Caddy reaches it over the compose network, so the
+    # app is not directly exposed even if the VPS firewall is permissive.
+    expose:
+      - "7860"
+    env_file:
+      - .env
+    environment:
+      PORT: "7860"
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://omnimind:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omnimind
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /data/objects
+      # Same origin as the frontend it serves, so this is belt-and-braces rather
+      # than load-bearing — but a wrong value here is a confusing failure to debug.
+      CORS_ALLOW_ORIGINS: https://${DOMAIN}
+    volumes:
+      - objects:/data/objects
+      - models:/home/appuser/.cache   # reranker weights; avoids re-downloading on
+                                      # every container restart
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7860/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      # Generous: a cold start loads the reranker model before serving.
+      start_period: 180s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: omnimind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: omnimind
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnimind -d omnimind"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Cache only — nothing here is the source of truth, so an append-only file would
+    # buy durability for data we are happy to recompute.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
+  objects:
+  models:
+  caddy_data:
+  caddy_config:

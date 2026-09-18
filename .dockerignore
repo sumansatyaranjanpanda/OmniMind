@@ -7,3 +7,15 @@ tests
 .pytest_cache
 .ruff_cache
 .mypy_cache
+
+# Installed by `npm ci` inside the build — copying the host's tree instead would
+# ship Windows-built binaries into a Linux image.
+frontend/node_modules
+frontend/dist
+
+# Model weights are fetched at runtime; baking the host's copy in is just bulk.
+.cache
+
+# Ad-hoc development scripts and fixtures, not part of the deployed service.
+test_*.pdf
+scratchpad

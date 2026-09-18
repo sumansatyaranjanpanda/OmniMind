@@ -1,0 +1,38 @@
+# TLS terminates here. Caddy obtains and renews Let's Encrypt certificates on its
+# own, so there is no certbot cron to forget about.
+
+{
+	email {$TLS_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Voice mode is a WebSocket upgrade on this path. Caddy's reverse_proxy handles
+	# upgrades natively, so no special websocket block is needed — but the long
+	# timeouts below are: a spoken session holds the connection open far past the
+	# default write timeout, and a deep_research turn can take several seconds.
+	reverse_proxy api:7860 {
+		flush_interval -1 # stream SSE token-by-token instead of buffering the response
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		# Document uploads. The default 10MB would reject ordinary PDFs.
+		max_size 100MB
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 5
+		}
+	}
+}

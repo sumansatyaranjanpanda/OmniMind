@@ -55,3 +55,5 @@ frontend/out/
 
 # Downloaded model weights — fetched at runtime by flashrank, not source
 .cache/
+deploy/.env
+
