@@ -141,6 +141,23 @@ def main() -> int:
         deadline = time.time() + float(os.environ.get("OCI_CAPACITY_WAIT_SECONDS", 1800))
         instance = None
         attempt = 0
+        backoff = 60.0
+
+        def retryable(err: oci.exceptions.ServiceError) -> str | None:
+            """Classify errors worth waiting out, vs. ones that need a human.
+
+            Two distinct conditions look similar and both mean "try again later":
+            a genuine capacity shortage (500 / "Out of host capacity"), and Oracle
+            rate-limiting the launch calls themselves (429 "Too many requests for
+            the user"). An earlier version matched on the word "capacity" alone and
+            so crashed on the 429, which says nothing about capacity.
+            """
+            msg = str(err.message).lower()
+            if err.status == 429:
+                return "rate-limited"
+            if err.status in (500, 502, 503) and ("capacity" in msg or "out of host" in msg):
+                return "no capacity"
+            return None
 
         while instance is None:
             attempt += 1
@@ -163,10 +180,27 @@ def main() -> int:
                     log(f"accepted at {ocpus} OCPU / {mem}GB")
                     break
                 except oci.exceptions.ServiceError as e:
-                    if e.status in (500, 429) and "capacity" in str(e.message).lower():
-                        log(f"  no capacity at {ocpus}/{mem}")
-                        continue
-                    raise
+                    reason = retryable(e)
+                    if reason is None:
+                        raise
+                    log(f"  {reason} at {ocpus}/{mem}")
+                    if reason == "rate-limited":
+                        # Backing off immediately rather than walking the rest of the
+                        # ladder: further calls right now would only deepen the limit.
+                        break
+                    # Space out ladder rungs so a burst of rejections doesn't itself
+                    # trigger the rate limiter.
+                    time.sleep(5)
+                except oci.exceptions.RequestException as e:
+                    # A DNS blip, Wi-Fi drop, or VPN transition on THIS machine — the
+                    # request never reached Oracle at all, so it says nothing about
+                    # capacity. Confirmed live 2026-09-18: a ~35-minute retry run was
+                    # silently killed by exactly this (NameResolutionError), which
+                    # this except clause did not previously catch — ServiceError only
+                    # covers responses Oracle actually sent. Treat it exactly like a
+                    # retryable rejection rather than letting it end the whole run.
+                    log(f"  local network error at {ocpus}/{mem}: {type(e).__name__}")
+                    time.sleep(5)
 
             if instance is None:
                 if time.time() > deadline:
@@ -176,7 +210,10 @@ def main() -> int:
                     log("needed once capacity appears. Raise OCI_CAPACITY_WAIT_SECONDS to")
                     log("keep trying for longer.")
                     return 2
-                time.sleep(60)
+                log(f"  waiting {int(backoff)}s before the next round")
+                time.sleep(backoff)
+                backoff = min(backoff * 1.5, 300)  # ease off, but keep checking often
+                                                    # enough to catch a short opening
 
     log("waiting for RUNNING")
     instance = oci.wait_until(compute, compute.get_instance(instance.id),
