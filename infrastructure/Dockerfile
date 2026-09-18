@@ -13,9 +13,20 @@ WORKDIR /app
 # ── Stage 1: Dependencies ──────────────────────────────────────
 FROM base AS deps
 
-COPY pyproject.toml ./
+# torch is a transitive dependency of docling/sentence-transformers/timm (used for
+# local FlashRank reranking and Docling parsing, never GPU inference — model access
+# is Gemini-direct per ADR 002). Left to its default resolution, pip pulls the CUDA
+# build, which drags in nvidia-cublas/cudnn/cuda-toolkit/triton — several unnecessary
+# gigabytes that took every build of this image to 20+ minutes for zero benefit,
+# since this container has no GPU passthrough. Installing the CPU wheel first means
+# pip sees torch already satisfied when it resolves docling's `torch<3.0.0,>=2.2.2`
+# constraint below, so the CUDA variant is never even considered.
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Copy all files needed for the wheel build
+COPY . .
+RUN pip install --no-cache-dir .
 
 # ── Stage 2: Application ───────────────────────────────────────
 FROM base AS runtime
@@ -33,6 +44,7 @@ COPY chunking/ ./chunking/
 COPY retrieval/ ./retrieval/
 COPY reranking/ ./reranking/
 COPY agents/ ./agents/
+COPY core/ ./core/
 COPY model_gateway/ ./model_gateway/
 COPY evaluation/ ./evaluation/
 COPY observability/ ./observability/

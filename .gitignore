@@ -52,3 +52,6 @@ infrastructure/migrations/versions/__pycache__/
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+
+# Downloaded model weights — fetched at runtime by flashrank, not source
+.cache/

@@ -1,0 +1,728 @@
+/* ==========================================================================
+   OmniMind Design Tokens
+   Light: cobalt on white.  Dark: clay on warm charcoal.
+   Component rules must never reference a raw hex — only these tokens.
+   Spec: docs/UIUX_DESIGN.md §3
+   ========================================================================== */
+
+:root {
+  /* ── Surfaces ───────────────────────────────────────────── */
+  --bg-base:        #FFFFFF;
+  --bg-subtle:      #F7F8FA;
+  --bg-muted:       #EEF1F5;
+  --bg-inset:       #E7EBF1;
+
+  /* ── Borders ────────────────────────────────────────────── */
+  --border-subtle:  #E3E7EC;
+  --border-strong:  #CBD3DD;
+  --border-focus:   #2C5FF6;
+
+  /* ── Text ───────────────────────────────────────────────── */
+  --text-primary:   #0E1116;
+  --text-secondary: #414A57;
+  --text-muted:     #5B6472;
+  --text-disabled:  #98A1AD;
+  --text-on-accent: #FFFFFF;
+
+  /* ── Accent (single) ────────────────────────────────────── */
+  --accent:         #2C5FF6;
+  --accent-hover:   #1B47C9;
+  --accent-soft:    #EAF0FF;
+  --accent-text:    #1B47C9;
+
+  /* ── Semantic state ─────────────────────────────────────── */
+  --success:        #137A4B;
+  --success-soft:   #E4F4EC;
+  --warning:        #8A5D00;
+  --warning-soft:   #FCF1DC;
+  --danger:         #B3341F;
+  --danger-soft:    #FCEAE6;
+  --info:           #1B5E8A;
+  --info-soft:      #E5F1F8;
+
+  /* ── Elevation (no glow, ever) ──────────────────────────── */
+  --shadow-sm:      0 1px 2px rgba(14, 17, 22, 0.06);
+  --shadow-md:      0 1px 2px rgba(14, 17, 22, 0.06), 0 4px 12px rgba(14, 17, 22, 0.05);
+  --shadow-lg:      0 2px 4px rgba(14, 17, 22, 0.06), 0 12px 32px rgba(14, 17, 22, 0.08);
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --text-xs:   11px;
+  --text-sm:   12.5px;
+  --text-base: 14px;
+  --text-md:   15px;
+  --text-lg:   17px;
+  --text-xl:   20px;
+  --text-2xl:  26px;
+
+  --leading-tight: 1.25;
+  --leading-body:  1.6;
+  --leading-loose: 1.75;
+
+  /* ── Spacing (4px base) ─────────────────────────────────── */
+  --space-1: 4px;   --space-2: 8px;   --space-3: 12px;  --space-4: 16px;
+  --space-5: 20px;  --space-6: 24px;  --space-8: 32px;  --space-10: 40px;
+  --space-12: 48px; --space-16: 64px;
+
+  /* ── Radius ─────────────────────────────────────────────── */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-full: 9999px;
+
+  /* ── Layout constants ───────────────────────────────────── */
+  --shell-header:   48px;
+  --shell-nav:      220px;
+  --shell-nav-rail: 56px;
+  --shell-evidence: 320px;
+  --measure:        68ch;
+
+  /* ── Motion ─────────────────────────────────────────────── */
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+  --dur-4: 280ms;
+
+  --ease-out:    cubic-bezier(0, 0, 0.2, 1);
+  --ease-in:     cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --z-base: 0; --z-panel: 10; --z-header: 20; --z-drawer: 30; --z-modal: 40; --z-toast: 50;
+}
+
+/* Dark: system preference, unless the user explicitly chose light */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-base:        #262624;
+    --bg-subtle:      #2E2E2B;
+    --bg-muted:       #37372F;
+    --bg-inset:       #1F1F1D;
+
+    --border-subtle:  #413F3A;
+    --border-strong:  #55524A;
+    --border-focus:   #E08A5F;
+
+    --text-primary:   #F0EEE6;
+    --text-secondary: #C9C4B8;
+    --text-muted:     #A9A49A;
+    --text-disabled:  #75716A;
+    --text-on-accent: #241C17;
+
+    --accent:         #E08A5F;
+    --accent-hover:   #EC9E77;
+    --accent-soft:    #3A2E27;
+    --accent-text:    #F0A87E;
+
+    --success:        #7CC49B;
+    --success-soft:   #2A362E;
+    --warning:        #D9B166;
+    --warning-soft:   #3A3327;
+    --danger:         #E28A7A;
+    --danger-soft:    #3B2A26;
+    --info:           #86B9D6;
+    --info-soft:      #26333A;
+
+    --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md:      0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
+    --shadow-lg:      0 2px 4px rgba(0, 0, 0, 0.4),  0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* Dark: explicit user choice — must win over a light OS setting.
+   Body kept identical to the media block above; change both together. */
+:root[data-theme="dark"] {
+  --bg-base:        #262624;
+  --bg-subtle:      #2E2E2B;
+  --bg-muted:       #37372F;
+  --bg-inset:       #1F1F1D;
+
+  --border-subtle:  #413F3A;
+  --border-strong:  #55524A;
+  --border-focus:   #E08A5F;
+
+  --text-primary:   #F0EEE6;
+  --text-secondary: #C9C4B8;
+  --text-muted:     #A9A49A;
+  --text-disabled:  #75716A;
+  --text-on-accent: #241C17;
+
+  --accent:         #E08A5F;
+  --accent-hover:   #EC9E77;
+  --accent-soft:    #3A2E27;
+  --accent-text:    #F0A87E;
+
+  --success:        #7CC49B;
+  --success-soft:   #2A362E;
+  --warning:        #D9B166;
+  --warning-soft:   #3A3327;
+  --danger:         #E28A7A;
+  --danger-soft:    #3B2A26;
+  --info:           #86B9D6;
+  --info-soft:      #26333A;
+
+  --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md:      0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg:      0 2px 4px rgba(0, 0, 0, 0.4),  0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* ==========================================================================
+   TEMPORARY compatibility aliases — remove once no component references them.
+   231 inline style blocks reference the old names by string; these keep the app
+   working mid-migration. The six neon accents collapse onto one accent plus four
+   semantic colours here, so the visual cleanup lands before any component is
+   edited. See docs/UIUX_DESIGN.md §4 and §12 Phase 5.
+   ========================================================================== */
+:root {
+  --bg-space:            var(--bg-base);
+  --bg-deep:             var(--bg-base);
+  --bg-surface:          var(--bg-subtle);
+  --bg-surface-elevated: var(--bg-muted);
+  --bg-surface-active:   var(--bg-inset);
+  --bg-glass:            var(--bg-subtle);
+  --bg-glass-heavy:      var(--bg-subtle);
+  --border-medium:       var(--border-strong);
+  --border-bright:       var(--border-strong);
+  --accent-violet:       var(--accent);
+  --accent-violet-bg:    var(--accent-soft);
+  --accent-violet-glow:  transparent;
+  --accent-emerald:      var(--success);
+  --accent-emerald-bg:   var(--success-soft);
+  --accent-emerald-glow: transparent;
+  --accent-amber:        var(--warning);
+  --accent-amber-bg:     var(--warning-soft);
+  --accent-amber-glow:   transparent;
+  --accent-rose:         var(--danger);
+  --accent-rose-bg:      var(--danger-soft);
+  --accent-rose-glow:    transparent;
+  --accent-blue:         var(--info);
+  --accent-blue-bg:      var(--info-soft);
+  --accent-blue-glow:    transparent;
+  --accent-cyan:         var(--info);
+  --accent-cyan-bg:      var(--info-soft);
+  --accent-cyan-glow:    transparent;
+  --text-dim:            var(--text-disabled);
+  --font-heading:        var(--font-sans);
+  --radius-xl:           var(--radius-lg);
+  --shadow-glow-violet:  none;
+  --shadow-glow-emerald: none;
+}
+
+/* ==========================================================================
+   CSS Reset & Base Rules
+   ========================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  /* Explicit ground: a transparent body borrows the host's theme and produces
+     one theme's text on the other theme's background. */
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+#root {
+  /* dvh, not vh — on mobile the browser chrome otherwise hides the composer */
+  height: 100dvh;
+  width: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Visible focus on every interactive element (spec §11) */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-disabled);
+  background-clip: content-box;
+}
+
+/* ==========================================================================
+   Utility Classes & Components
+   ========================================================================== */
+
+/* Panels & cards.
+   Class names kept (231 call sites) but the glass is gone: backdrop-filter costs
+   GPU on every scroll and lowers text contrast. A panel that sits IN the layout
+   gets a border, not a shadow — only drawers and modals genuinely float. */
+.glass-panel {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.glass-panel:hover {
+  border-color: var(--border-strong);
+}
+
+.glass-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out);
+}
+
+.glass-card:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  /* Named properties, never `transition: all` — `all` animates layout properties
+     you did not intend and costs frames. */
+  transition: background-color var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out);
+  user-select: none;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.btn-secondary {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+}
+
+.btn-secondary:active:not(:disabled) {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Badges & Pills */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.badge-emerald {
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid transparent;
+}
+
+.badge-violet {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+}
+
+.badge-amber {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid transparent;
+}
+
+.badge-rose {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid transparent;
+}
+
+.badge-blue {
+  background: var(--info-soft);
+  color: var(--info);
+  border: 1px solid transparent;
+}
+
+/* Preset Chips */
+.preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out);
+  white-space: nowrap;
+}
+
+.preset-chip:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* Form Inputs */
+.input-text {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  outline: none;
+  transition: border-color var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
+}
+
+.input-text:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.input-text::placeholder {
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+
+/* Animation may do exactly two things: show that something changed state, or show
+   where something came from. Deleted for failing that test: pulseGlow (permanent
+   motion, nothing changed), redShake (a physical "no" gesture, wrong for a policy
+   explanation), and every translateY(-1px) lift. See docs/UIUX_DESIGN.md §9. */
+
+@keyframes pulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp var(--dur-2) var(--ease-out) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight var(--dur-4) var(--ease-out) forwards;
+}
+
+/* Retained as no-ops so existing call sites keep working without a glow or a
+   shake. Remove the class from components during the Phase 5 pass. */
+.animate-pulse-glow { animation: none; }
+.animate-shake { animation: none; }
+
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background-color: var(--accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 0.9s infinite;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.thinking-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  /* A loading state is not an emphasis — muted, not accent. */
+  background: var(--text-muted);
+  animation: pulseDot 1.2s infinite ease-in-out;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+/* Skeleton lines for the pre-token wait. Time-to-first-token is ~95% of total
+   time, so this is the state the user actually spends the wait in. */
+.skeleton-line {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  background-image: linear-gradient(
+    90deg,
+    var(--bg-muted) 0%,
+    var(--bg-inset) 50%,
+    var(--bg-muted) 100%
+  );
+  background-size: 600px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* Markdown citation marker badge */
+.citation-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out);
+  vertical-align: baseline;
+}
+
+.citation-ref:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* A cached answer arrives with citations: [] but still contains [^n] markers.
+   Rendered inert so a dead control never looks clickable — see §10.1. */
+.citation-ref-inert {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  cursor: default;
+  border-color: transparent;
+}
+
+/* ==========================================================================
+   Rendered answer markdown
+   --------------------------------------------------------------------------
+   The answer is rendered as real markdown (see AnswerMarkdown.tsx), so these
+   rules decide how it reads. Two deliberate choices:
+
+   Vertical rhythm is set with margins on the elements themselves rather than a
+   flex `gap`, because markdown output nests (lists inside list items, paragraphs
+   inside blockquotes) and a gap only spaces the outermost level.
+
+   Headings are sized close to body text. The model reaches for `###` freely, and
+   browser-default heading sizes turn a three-paragraph answer into something that
+   looks like a report with shouting section titles.
+   ========================================================================== */
+
+.md-answer > :first-child { margin-top: 0; }
+.md-answer > :last-child { margin-bottom: 0; }
+
+.md-answer p {
+  margin: 0 0 var(--space-4);
+  line-height: var(--leading-body);
+}
+
+.md-answer h1,
+.md-answer h2,
+.md-answer h3,
+.md-answer h4 {
+  margin: var(--space-6) 0 var(--space-3);
+  font-weight: 640;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.md-answer h1 { font-size: 1.15em; }
+.md-answer h2 { font-size: 1.08em; }
+.md-answer h3,
+.md-answer h4 { font-size: 1em; }
+
+.md-answer ul,
+.md-answer ol {
+  margin: 0 0 var(--space-4);
+  padding-left: 1.5em;
+}
+
+.md-answer li { margin-bottom: var(--space-2); }
+.md-answer li > ul,
+.md-answer li > ol { margin: var(--space-2) 0 0; }
+
+.md-answer strong { font-weight: 650; color: var(--text-primary); }
+
+.md-answer a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-answer code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-muted);
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.md-answer pre {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.md-answer pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.md-answer blockquote {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.md-answer hr {
+  margin: var(--space-6) 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Wide tables scroll inside their own box so the message column never
+   scrolls sideways as a whole. */
+.md-answer .md-table-wrap {
+  margin: 0 0 var(--space-4);
+  overflow-x: auto;
+}
+
+.md-answer table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.md-answer th,
+.md-answer td {
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.md-answer th {
+  background: var(--bg-muted);
+  font-weight: 620;
+}
+
+/* ==========================================================================
+   Reduced motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

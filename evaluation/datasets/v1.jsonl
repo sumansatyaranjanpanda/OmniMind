@@ -1,0 +1,2 @@
+{"question": "What is OmniMind?", "ground_truth": "OmniMind is an enterprise RAG/agent platform.", "context": ["OmniMind is an enterprise RAG/agent platform."]}
+{"question": "What chunking strategy is used?", "ground_truth": "MarkdownHeaderTextSplitter is used to chunk semantically by headers.", "context": ["Uses LangChain's MarkdownHeaderTextSplitter to chunk based on structure."]}

@@ -36,3 +36,40 @@ async def minio_healthy() -> bool:
         return True
     except Exception:
         return False
+
+
+async def upload_file(object_name: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    """Uploads bytes to MinIO and returns the object name (key)."""
+    import io
+    
+    stream = io.BytesIO(data)
+    length = len(data)
+    
+    await minio_client.put_object(
+        settings.minio_bucket_name,
+        object_name,
+        stream,
+        length,
+        content_type=content_type,
+    )
+    return object_name
+
+
+async def download_file(object_name: str) -> bytes:
+    """Downloads a file from MinIO and returns the bytes."""
+    response = await minio_client.get_object(
+        settings.minio_bucket_name,
+        object_name,
+    )
+    try:
+        return await response.read()
+    finally:
+        if hasattr(response, "close"):
+            response.close()
+        if hasattr(response, "release"):
+            response.release()
+
+
+async def delete_file(object_name: str) -> None:
+    """Deletes an object from MinIO. Not an error if it's already gone."""
+    await minio_client.remove_object(settings.minio_bucket_name, object_name)

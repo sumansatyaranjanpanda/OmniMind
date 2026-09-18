@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.database import get_db
 from api.deps import get_current_user
 from api.models.user import User
+from api.config import get_settings
 from api.schemas.auth import (
     LoginRequest,
     SignupRequest,
@@ -24,6 +25,14 @@ from security.password import hash_password, verify_password
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/auth", tags=["auth"])
+settings = get_settings()
+
+
+def _token_response(email: str) -> TokenResponse:
+    return TokenResponse(
+        access_token=create_access_token(subject=email),
+        expires_in=settings.jwt_expire_minutes * 60,
+    )
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -45,8 +54,7 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)) -> Tok
     await db.flush()  # assigns id, commit happens in get_db dependency
 
     logger.info("user_signup", email=body.email, user_id=str(user.id))
-    token = create_access_token(subject=user.email)
-    return TokenResponse(access_token=token)
+    return _token_response(user.email)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -68,8 +76,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
         )
 
     logger.info("user_login", email=body.email)
-    token = create_access_token(subject=user.email)
-    return TokenResponse(access_token=token)
+    return _token_response(user.email)
 
 
 @router.get("/me", response_model=UserResponse)

@@ -34,12 +34,12 @@ async def test_login_valid_credentials(client):
     # Signup first
     await client.post(
         "/auth/signup",
-        json={"email": "login@example.com", "password": "mypassword"},
+        json={"email": "login@example.com", "password": "mypassword1"},
     )
     # Login
     response = await client.post(
         "/auth/login",
-        json={"email": "login@example.com", "password": "mypassword"},
+        json={"email": "login@example.com", "password": "mypassword1"},
     )
     assert response.status_code == 200
     data = response.json()
@@ -51,7 +51,7 @@ async def test_login_wrong_password(client):
     """POST /auth/login with wrong password should return 401."""
     await client.post(
         "/auth/signup",
-        json={"email": "wrongpw@example.com", "password": "correct"},
+        json={"email": "wrongpw@example.com", "password": "correct123"},
     )
     response = await client.post(
         "/auth/login",
@@ -107,3 +107,70 @@ async def test_me_with_invalid_token(client):
         headers={"Authorization": "Bearer invalid-token-here"},
     )
     assert response.status_code == 401
+
+
+# ── Password policy (api/schemas/auth.py) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    "password,reason",
+    [
+        ("shrt1", "shorter than the 8-character minimum"),
+        ("nodigitshere", "no digit"),
+        ("12345678", "no letter"),
+        ("a1" + "x" * 71, "longer than bcrypt's 72-byte input limit"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_signup_rejects_weak_password(client, password, reason):
+    """Signup must enforce the policy server-side, whatever the client sends.
+
+    bcrypt hashes only the first 72 bytes and silently ignores the rest, so an
+    over-long passphrase is no stronger than its prefix — reject it rather than
+    accept a password we only partly check.
+    """
+    response = await client.post(
+        "/auth/signup",
+        json={"email": f"weak-{len(password)}-{reason[:4]}@example.com", "password": password},
+    )
+    assert response.status_code == 422, f"should reject: {reason}"
+
+
+@pytest.mark.asyncio
+async def test_signup_normalises_email_case(client):
+    """One person must not be able to register the same address twice.
+
+    The uniqueness check is an equality match on the stored column, so without
+    normalisation "User@Example.com" and "user@example.com" become two accounts
+    and which one you log into depends on how you typed it.
+    """
+    first = await client.post(
+        "/auth/signup",
+        json={"email": "MixedCase@Example.com", "password": "validpass1"},
+    )
+    assert first.status_code == 201
+
+    duplicate = await client.post(
+        "/auth/signup",
+        json={"email": "mixedcase@example.com", "password": "validpass1"},
+    )
+    assert duplicate.status_code == 409
+
+    # ...and the original casing still logs in.
+    login = await client.post(
+        "/auth/login",
+        json={"email": "MIXEDCASE@example.com", "password": "validpass1"},
+    )
+    assert login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_token_response_reports_expiry(client):
+    """The client needs to know when the token dies, rather than discovering it
+    from a failed action halfway through a task."""
+    response = await client.post(
+        "/auth/signup",
+        json={"email": "expiry@example.com", "password": "validpass1"},
+    )
+    assert response.status_code == 201
+    assert response.json()["expires_in"] > 0

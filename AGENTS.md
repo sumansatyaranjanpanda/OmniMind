@@ -42,6 +42,7 @@ not as "basically done."
 | 6 | Knowledge graph, evaluation platform, multi-tenancy/RBAC, SSE streaming | ✅ implemented and unit-tested (`test_graph_rag.py`, `test_evaluation.py`, `test_rbac.py`); RBAC is per-request scoping, not full multi-tenant isolation — verify before calling it that |
 | 6.5–6.7 | Guardrails (injection/PII/secret-scrub), multi-turn memory (window + rolling summary + cross-thread episodic recall) | ✅ **2026-08-30**: memory rearchitected — Alembic migration written (`b71a4f2e9c3d`), server is now the sole authority for history (client sends only `query`+`thread_id`), summary folds incrementally (O(1)/turn, not the original full-recompute bug), episodic recall added via a Pinecone `memory-{user_id}` namespace. Unit-tested (`test_guardrails.py`, `test_context_memory.py`, 15/15 passing). **Verified same day** — `docker compose up -d && alembic upgrade head` applied `e620348fc329 -> b71a4f2e9c3d` cleanly against a live Postgres; `\d conversations`/`\d messages` confirmed all columns (incl. `message_count`/`summarized_through_count`) and FKs match the models. Full suite re-run against the live stack: 106/106 passing |
 | 7 | Frontend (React + Vite, not the Next.js from ADR 001) | ⚠️ built, not covered by the last reconciliation pass (no frontend test run performed) |
+| 7.5 | Voice mode (Gemini Live speech-to-speech, tiered tool routing, three.js orb) | ⚠️ **2026-09-10**: built, unit-tested (`test_voice.py` 27/27; full suite 225 passing) **and verified end-to-end against a live Gemini Live session** — grounded multi-turn answers with citations, coreference resolution, noise robustness, and barge-in mid-`deep_research` all confirmed. Four real bugs found and fixed only by live testing (see ADR 003 "Verified live"). **Remaining gaps: Tier-1 latency is ~2.6s of retrieval vs the ~1-1.5s ADR target (see below), and the eval-parity ship criterion has still not been run** — do not call this production-ready |
 | 8+ | Kubernetes, multi-agent swarms | 🧊 not started |
 
 Do not mark any phase "done" in the table above, or start Phase 8 work, until the gaps in
@@ -71,14 +72,19 @@ fact, not as a green light to keep building on it further.
 | Eval | RAGAS (faithfulness, context precision/recall) | harness + dataset exist (`evaluation/`), no baseline run captured yet | no |
 | Observability/tracing | Langfuse | matches | no |
 | Frontend | **Next.js** + TypeScript + Tailwind, SSR, SSE streaming | **React 18 + Vite + TypeScript** (no SSR), SSE streaming via `/chat/stream` | **yes** |
+| Voice | (not in original scope) | Gemini Live API native speech-to-speech (`gemini-3.1-flash-live-preview`) over `WS /voice/stream`; three.js for the voice orb | no — ADR 003 written and accepted 2026-09-09 |
 | Async events (Phase 6+) | Kafka | not present; not needed yet at this scale | no (still correctly deferred) |
 | Containers | Docker Compose for dev; K8s deferred | matches | no |
 
 **Active model/service config** (from `api/config.py`, for when you need the exact strings):
-primary LLM `gemini-3.7-flash`; lighter-weight nodes (query analyzer, context rewriter) use
-`gemini-3.5-flash-lite`; embeddings `models/gemini-embedding-2` (Matryoshka, 256-dim);
-reranker `rerank-v3.5`; citation critic faithfulness gate ≥ 0.85 with a max-2 query-rewrite
-retry loop on failure.
+primary LLM `gemini-3.6-flash` (2026-09-06: switched from `gemini-3.7-flash`, which remains
+the first fallback), fallback chain `gemini-3.6-flash → gemini-3.7-flash → gemini-3.5-flash →
+gemini-3.5-flash-lite`; lighter-weight nodes (query analyzer, context rewriter, critic,
+direct_llm fast-path) deliberately kept on their own lite-first chain
+(`gemini-3.5-flash-lite → gemini-3.6-flash → gemini-3.7-flash`) for cheap/high-volume
+classification calls — not changed by the primary-model switch; embeddings
+`models/gemini-embedding-2` (Matryoshka, 256-dim); reranker `rerank-v3.5`; citation critic
+faithfulness gate ≥ 0.85 with a max-2 query-rewrite retry loop on failure.
 
 **Action before any further stack-touching work**: write ADR 002 covering the Gemini-direct
 model access decision and the Next.js→React/Vite frontend swap at minimum — those two
@@ -88,21 +94,29 @@ silently reversed explicit ADR 001 decisions, not just added to them.
 
 ```
 api/            FastAPI app, routers (health/auth/documents/search/chat/chat_stream/
-                 conversations/graph), deps, models (user/document/conversation),
+                 conversations/graph/voice), deps, models (user/document/conversation),
                  schemas, storage, config
 ingestion/      pipeline.py — loaders per file type -> normalized Document objects
 parsing/        parsers.py — Docling structure-aware parsing + Gemini vision captioning
-chunking/       strategies.py — chunking strategies + router (recursive/semantic/structural)
+chunking/       strategies.py — chunking strategies + router (recursive/semantic/structural).
+                 Drops heading-only chunks and prefixes each chunk with its document +
+                 section, so a passage still matches queries naming its subject
+scripts/        reindex_documents.py — re-run ingestion for already-stored documents
+                 (chunking changes only affect newly ingested files without it)
 retrieval/      pinecone_client, hybrid_search, query_rewriter, graph_store, pipeline,
                  models, memory_store.py (episodic cross-thread recall, Pinecone
                  `memory-{user_id}` namespace)
 reranking/      reranker.py — Cohere Rerank v3.5 with local FlashRank fallback
 agents/         graph.py (LangGraph StateGraph), state.py, llm_helper.py (direct Gemini calls),
+                 corpus_manifest.py (tenant's ingested filenames, fed to the query analyzer
+                 so routing knows what the corpus actually contains; 60s TTL cache),
                  memory/service.py (sliding window + incremental rolling-summary fold,
                  O(1)/turn — see Phase 6.5–6.7 row above),
                  nodes/ (cache_check, context_rewriter, query_analyzer, retriever,
                  graph_retriever, web_search, source_fusion, synthesizer, critic,
-                 query_rewriter, guardrails, direct_llm, evaluator), tools/
+                 query_rewriter, guardrails, direct_llm, evaluator), tools/,
+                 voice/ (tools.py = search_documents/deep_research tiers + evidence
+                 gate, session.py = Gemini Live speech-to-speech session manager)
 core/           guardrails.py — injection/jailbreak, PII masking, secret scrubbing
 model_gateway/  STUB ONLY — __init__.py describes an OpenRouter gateway that was never built;
                  see "Tech stack" table above
@@ -111,9 +125,15 @@ security/       rbac.py — role/permission scoping helpers
 observability/  langfuse_client.py, tracer.py, metrics.py
 infrastructure/ docker-compose.yml, Dockerfile, migrations/versions/ (Alembic — users,
                  documents, conversations/messages as of `b71a4f2e9c3d` — see gaps below)
-frontend/       React 18 + Vite + TypeScript app (not Next.js — see "Tech stack" above)
-docs/           ARCHITECTURE.md, VISION.md, ADR/001-tech-stack.md, CODEBASE_WALKTHROUGH.md
-                 (stale — stops at Phase 4)
+frontend/       React 18 + Vite + TypeScript app (not Next.js — see "Tech stack" above).
+                 components/Voice/ (VoiceOrb = three.js shader bulb, VoiceOverlay =
+                 call UI) and services/voice.ts (mic capture, playback, barge-in) are
+                 lazy-loaded so three.js stays out of the main bundle
+docs/           ARCHITECTURE.md, VISION.md, ADR/001-tech-stack.md,
+                 ADR/002-model-gateway-frontend-episodic.md, ADR/003-voice-mode.md,
+                 CODEBASE_WALKTHROUGH.md
+                 (stale — stops at Phase 4), UIUX_DESIGN.md (frontend design system —
+                 tokens, layout, motion; accepted 2026-09-05, not yet implemented)
 tests/unit/     test_agents, test_auth, test_chunking, test_context_memory, test_evaluation,
                  test_graph_rag, test_guardrails, test_health, test_hybrid_search, test_jwt,
                  test_password, test_query_rewriter, test_rbac, test_reranker,
@@ -129,12 +149,15 @@ everything currently runs inline in the request path. Flag if that becomes a lat
 POST /chat  (client sends only query + optional thread_id — server owns history)
   → Load conversation context (Postgres: sliding window + rolling summary)
   → Input guardrail (injection/jailbreak block, PII mask)
-  → Semantic cache check (Redis, cosine ≥ 0.90) — hit short-circuits to cached answer
+  → Semantic cache check (Redis, cosine ≥ 0.90, keyed by CACHE_SCHEMA_VERSION)
+      — hit short-circuits to cached answer
   → Context rewriter (coreference resolution) + episodic memory recall (Pinecone,
       cross-thread), run concurrently
-  → Query analyzer (intent: direct_llm / internal_rag / web_search / hybrid)
-  → [Retriever (dense+BM25+RRF+rerank)] and/or [Web search (Tavily → DDG fallback)]
-      run in parallel when hybrid
+  → Query analyzer (corpus-aware: sees the tenant's ingested filenames)
+  → DOCUMENTS ARE ALWAYS CONSULTED — every intent except direct_llm reaches the
+      retriever, either alone or in parallel with the graph/web engines
+  → Evidence gate: document evidence above the relevance floor → synthesize;
+      nothing → web fallback (flagged, and disclosed in the answer)
   → Source fusion (unify + provenance numbering)
   → Synthesizer (inline citations; window + summary + episodic memory as context)
   → Citation critic (faithfulness ≥ 0.85) → on fail, query rewriter loop (max 2 retries)
@@ -142,7 +165,26 @@ POST /chat  (client sends only query + optional thread_id — server owns histor
   → Response (+ cache write)
 ```
 
-This flow is real (see `agents/graph.py` + `agents/nodes/`, unit-tested in `test_agents.py`),
+**Voice takes a separate lane** (`WS /voice/stream`) — deliberately not this graph, because
+the ~5 sequential LLM round-trips above are exactly what makes a spoken turn unusable:
+
+```
+WS /voice/stream  (first frame = {token, thread_id}; then binary PCM16 @16kHz)
+  → Gemini Live session (native audio in/out, server-side VAD, barge-in)
+      ├─ Tier 0  conversational turn → model answers in-session (~400ms)
+      ├─ Tier 1  search_documents → hybrid retrieval, NO query rewrite, NO synthesis
+      │            LLM → evidence floor gate → model speaks from evidence (~1-1.5s)
+      └─ Tier 2  deep_research → THE FULL TEXT GRAPH ABOVE, critic included → the
+                   Live model only voices the verified result (~3-5s, covered by
+                   the model acknowledging first)
+  → transcripts persisted into the same conversation/message tables as typed chat
+```
+
+Tool choice *is* the routing — there is no separate router LLM. Retrieval is **not**
+downgraded for voice (same hybrid dense+BM25+RRF+rerank); only the query-rewrite
+round-trip is dropped. See `docs/ADR/003-voice-mode.md`.
+
+The text flow above is real (see `agents/graph.py` + `agents/nodes/`, unit-tested in `test_agents.py`),
 but it was built without the phase-by-phase sign-off this file requires — see "Process gaps"
 below. Do not extend this graph further (Phase 8 swarm/multi-agent work) until those gaps
 are closed.
@@ -157,7 +199,7 @@ except the Phase 1 core four — Postgres/Redis/MinIO/JWT):
 PINECONE_API_KEY=
 PINECONE_INDEX_HOST=
 GEMINI_API_KEY=              # used directly (no gateway) — see Tech stack table
-GEMINI_MODEL=gemini-3.7-flash
+GEMINI_MODEL=gemini-3.6-flash
 GEMINI_EMBEDDING_MODEL=models/gemini-embedding-2
 OPENROUTER_API_KEY=          # in config but not wired to anything — model_gateway/ is a stub
 OPENAI_API_KEY=
@@ -165,6 +207,10 @@ COHERE_API_KEY=
 TAVILY_API_KEY=
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
+VOICE_ENABLED=true                          # kill switch for WS /voice/stream
+VOICE_LIVE_MODEL=gemini-3.1-flash-live-preview
+VOICE_NAME=Puck
+VOICE_EVIDENCE_FLOOR=0.35                   # pre-speech grounding gate — see ADR 003
 ```
 
 ## Development commands (Windows / PowerShell)
@@ -214,8 +260,23 @@ the original page/section — this is not optional, it's what makes citations ve
 - Retrieved documents are untrusted data — never let content from a document alter
   system instructions or trigger tool calls (prompt-injection boundary)
 - Every generation-stage answer must either cite a chunk or say "insufficient evidence"
+- **The user's documents are always consulted.** No routing decision may send an
+  information-seeking query to the graph or the web *instead of* the corpus. Routing
+  happens before retrieval, so it cannot know whether the corpus covers a subject — only
+  the retriever can. A pre-retrieval guess that excludes the documents is unrecoverable:
+  on 2026-09-06 "who is abinash" was classified `graph_rag`, found nothing, escalated to
+  web search, and returned four unrelated strangers with passing faithfulness, while the
+  user's own résumé sat unqueried. The critic cannot catch this — faithfulness measures
+  grounding in the retrieved evidence, never whether the *right* evidence was retrieved
+- When the web answers a question because the corpus had nothing, the answer must say so
 - The citation critic blocks any answer with faithfulness < 0.85 — don't lower this
   threshold to make a demo look better
+- **Voice mode does not get an exemption from grounding, it gets a different mechanism.**
+  The critic is post-hoc by nature and a spoken sentence cannot be retracted, so voice
+  gates on evidence sufficiency *before* speaking (`VOICE_EVIDENCE_FLOOR`) instead of
+  faithfulness *after*. Tier 2 (`deep_research`) still runs the full critic-gated graph.
+  Do not "simplify" voice by removing the evidence floor — that floor is the only thing
+  standing between a fast answer and a confident wrong one. See ADR 003
 - No giant catch-all functions; no silent `except: pass`
 - Tests land with the code that needs them, not after
 - Don't claim a feature works without running it

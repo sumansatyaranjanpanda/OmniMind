@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.document import Document
 from api.models.user import User
-from api.routers.documents import background_process_document, upload_document_endpoint, reprocess_document_endpoint, list_documents
+from api.routers.documents import (
+    background_process_document,
+    delete_document_endpoint,
+    list_documents,
+    reprocess_document_endpoint,
+    upload_document_endpoint,
+)
 
 
 @pytest.fixture
@@ -262,3 +268,74 @@ async def test_upload_document_no_extension(mock_db, mock_user):
     # Verify no extension results in no trailing dot
     assert not s3_key.endswith(".")
     assert str(mock_user.id) in s3_key
+
+
+@pytest.mark.asyncio
+async def test_delete_document_success(mock_db, mock_user):
+    """Deleting an owned document removes storage, vectors, and the DB row."""
+    doc_id = uuid.uuid4()
+    mock_doc = MagicMock(spec=Document)
+    mock_doc.id = doc_id
+    mock_doc.user_id = mock_user.id
+    mock_doc.s3_key = f"{mock_user.id}/{doc_id}.pdf"
+
+    mock_db.get = AsyncMock(return_value=mock_doc)
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    with patch("api.routers.documents.delete_file", new_callable=AsyncMock) as mock_delete_file, \
+         patch("api.routers.documents.delete_document_vectors", new_callable=AsyncMock) as mock_delete_vectors:
+        await delete_document_endpoint(doc_id, mock_user, mock_db)
+
+    mock_delete_file.assert_called_once_with(mock_doc.s3_key)
+    mock_delete_vectors.assert_called_once_with(str(doc_id), tenant_id=str(mock_user.id))
+    mock_db.delete.assert_called_once_with(mock_doc)
+    mock_db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_document_not_found(mock_db, mock_user):
+    """Deleting a nonexistent document raises 404."""
+    from fastapi import HTTPException
+
+    mock_db.get = AsyncMock(return_value=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_document_endpoint(uuid.uuid4(), mock_user, mock_db)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_document_wrong_user(mock_db, mock_user):
+    """A user cannot delete another user's document."""
+    from fastapi import HTTPException
+
+    other_doc = MagicMock(spec=Document)
+    other_doc.user_id = uuid.uuid4()  # different owner
+
+    mock_db.get = AsyncMock(return_value=other_doc)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_document_endpoint(uuid.uuid4(), mock_user, mock_db)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_document_storage_failure_still_deletes_row(mock_db, mock_user):
+    """A MinIO/Pinecone hiccup shouldn't block removing the document from the catalog."""
+    doc_id = uuid.uuid4()
+    mock_doc = MagicMock(spec=Document)
+    mock_doc.id = doc_id
+    mock_doc.user_id = mock_user.id
+    mock_doc.s3_key = f"{mock_user.id}/{doc_id}.pdf"
+
+    mock_db.get = AsyncMock(return_value=mock_doc)
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    with patch("api.routers.documents.delete_file", new_callable=AsyncMock, side_effect=Exception("MinIO down")), \
+         patch("api.routers.documents.delete_document_vectors", new_callable=AsyncMock, side_effect=Exception("Pinecone down")):
+        await delete_document_endpoint(doc_id, mock_user, mock_db)
+
+    mock_db.delete.assert_called_once_with(mock_doc)
+    mock_db.commit.assert_called_once()

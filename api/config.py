@@ -10,6 +10,9 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_JWT_SECRET = "change-me-to-a-random-secret-in-production"
+
+
 class Settings(BaseSettings):
     """Central configuration. Reads from environment / .env file."""
 
@@ -19,6 +22,26 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    # "development" | "staging" | "production". Anything other than development
+    # turns on the startup safety checks in api/main.py.
+    environment: str = "development"
+
+    # Browser origins allowed to call this API, comma-separated. The frontend is
+    # served from a different origin than the API, so a deployment whose real
+    # domain is missing here has every request blocked by the browser.
+    cors_allow_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:3000,http://127.0.0.1:3000"
+    )
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() not in ("development", "dev", "local", "test")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
     # ── Postgres ────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://omnimind:omnimind@localhost:5432/omnimind"
@@ -38,12 +61,50 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # When true, requests with a missing or invalid token are silently treated as the
+    # built-in demo user instead of being rejected. That is a local-demo convenience
+    # ONLY: it disables authentication for every protected route and collapses tenant
+    # isolation, since tenant_id is derived from the resolved user. Defaults to off so
+    # a deployment cannot inherit it by forgetting to set it.
+    allow_demo_user_fallback: bool = False
+
     # ── Phase 2+ (optional — not required yet) ──────────────────
     pinecone_api_key: str | None = None
     pinecone_index_host: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.6-flash"
+    gemini_embedding_model: str = "models/gemini-embedding-2"
+    gemini_embedding_dim: int = 256
+    gemini_thinking_budget: int = 0
     openrouter_api_key: str | None = None
+    openai_api_key: str | None = None
+    cohere_api_key: str | None = None
+    cohere_rerank_model: str = "rerank-v3.5"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_base_url: str | None = None
+    tavily_api_key: str | None = None
+
+    # ── Voice mode (Gemini Live API — see docs/ADR/003-voice-mode.md) ──
+    # Native audio speech-to-speech. Reuses gemini_api_key; a separate model
+    # because the text flagship has no audio modality.
+    voice_enabled: bool = True
+    voice_live_model: str = "gemini-3.1-flash-live-preview"
+    voice_name: str = "Puck"
+
+    # Voice retrieval is deliberately tuned differently from text retrieval.
+    # Query rewriting is off (it costs a full LLM round-trip and the Live model
+    # already resolves coreferences in-session), and top_k is smaller because
+    # spoken answers cite one or two sources, not five.
+    voice_retrieval_top_k: int = 4
+    voice_enable_rerank: bool = True
+
+    # Evidence floor for the pre-speech gate. Voice cannot run the post-hoc
+    # citation critic inline, so sufficiency is checked *before* generating
+    # instead of faithfulness *after* — below this top score the tool reports
+    # "no supporting evidence" and the model is instructed to say so.
+    voice_evidence_floor: float = 0.35
 
 
 @lru_cache
