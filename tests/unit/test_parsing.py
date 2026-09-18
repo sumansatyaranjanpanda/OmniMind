@@ -75,23 +75,22 @@ async def test_parse_document_csv():
 
 
 @pytest.mark.asyncio
-async def test_parse_document_with_docling_mock():
-    """Test Docling parsing path (PDF) with mocked Docling and Gemini.
+async def test_unparseable_pdf_raises_rather_than_decoding_bytes_as_text():
+    """A .pdf that the real parser cannot read must fail, not fall back.
 
-    Note: This test is simplified because full mocking of Docling's
-    PictureItem and PIL Image is complex. In practice, integration tests
-    should verify this path with real PDFs.
+    This test previously asserted the opposite — it fed markdown bytes under a .pdf
+    name and expected the decode fallback to return them, with a docstring conceding
+    it was a stand-in because "Docling mocking is complex". That silent fallback is
+    what shipped the 2026-09-18 bug: a torch/torchvision ABI mismatch broke Docling
+    in the container, every PDF was decoded as raw bytes, and ingestion reported
+    success while storing 173 chunks of mojibake. Nothing surfaced the failure until
+    queries started answering "insufficient evidence" for documents that were right
+    there. Failing loudly is the behaviour worth locking in.
     """
-    # For now, we test that parse_document handles the basic flow
-    # by testing with a plaintext file (no Docling needed)
-    file_bytes = b"# PDF Content\n\nSome text."
-    filename = "document.pdf"
+    with pytest.raises(Exception) as exc:
+        await parse_document(b"# Not actually a PDF\n\nSome text.", "document.pdf")
 
-    # This will use the fallback text path since we can't easily mock Docling
-    result = await parse_document(file_bytes, filename)
-
-    assert "# PDF Content" in result.markdown_text
-    assert result.source_type == "pdf"
+    assert "pdf" in str(exc.value).lower()
 
 
 @pytest.mark.asyncio
@@ -149,3 +148,37 @@ async def test_parse_document_invalid_utf8():
     # Should decode with errors='ignore'
     assert "Valid text" in result.markdown_text
     assert result.source_type == "txt"
+
+
+# ── Binary-format parse failures must be loud (added 2026-09-18) ──
+#
+# A torch/torchvision ABI mismatch broke Docling's layout model inside the container.
+# The old fallback decoded the PDF's raw bytes as UTF-8, so ingestion "succeeded"
+# with 173 chunks of mojibake that embedded and retrieved fine but meant nothing.
+# The only visible symptom was an unexplained "insufficient evidence" at query time.
+
+
+def test_pdf_parse_failure_raises_instead_of_storing_garbage():
+    from parsing.parsers import _docling_convert_sync
+
+    # No docling importable in this test env -> the failure path under test.
+    with pytest.raises(Exception) as exc:
+        _docling_convert_sync(b"%PDF-1.7 \x00\x81\xff binary bytes", "report.pdf")
+
+    assert "pdf" in str(exc.value).lower()
+
+
+def test_office_formats_are_treated_the_same_way():
+    from parsing.parsers import _BINARY_DOCUMENT_FORMATS
+
+    for ext in ("pdf", "docx", "pptx", "xlsx"):
+        assert ext in _BINARY_DOCUMENT_FORMATS
+
+
+def test_markdown_still_falls_back_to_text_decoding():
+    """For text formats the decode fallback is a real answer, so it stays."""
+    from parsing.parsers import _docling_convert_sync
+
+    text, figures = _docling_convert_sync(b"# Title\n\nPlain body.", "notes.md")
+    assert "Plain body." in text
+    assert figures == []

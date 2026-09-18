@@ -33,6 +33,11 @@ import structlog
 from api.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# Formats whose bytes are not text under any encoding. If the real parser fails on
+# one of these there is no meaningful fallback, so ingestion must fail rather than
+# store the decoded bytes — see the parse error path below.
+_BINARY_DOCUMENT_FORMATS = {"pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls"}
 settings = get_settings()
 
 # Lazy-init Gemini client for vision captioning
@@ -144,7 +149,31 @@ def _docling_convert_sync(file_bytes: bytes, filename: str) -> tuple[str, list[t
 
             return markdown_text, figures
         except Exception as docling_err:
-            logger.warning("Docling conversion failed, using fallback text decoding", error=str(docling_err))
+            # Decoding a PDF/DOCX/XLSX as UTF-8 does not "degrade gracefully" — it
+            # produces mojibake that chunks, embeds and retrieves perfectly happily
+            # while meaning nothing. Ingestion then reports success and the failure
+            # only surfaces much later as an unexplained "insufficient evidence".
+            #
+            # Verified live 2026-09-18: a torch/torchvision ABI mismatch broke
+            # Docling's layout model, and a PDF ingested as 173 chunks of binary
+            # garbage with no error anywhere. Fail loudly for formats that cannot be
+            # text, so the document is marked FAILED and the cause is visible.
+            if ext in _BINARY_DOCUMENT_FORMATS:
+                logger.error(
+                    "Document parsing failed and no text fallback is possible for "
+                    "this format — refusing to store undecodable bytes as text",
+                    file_extension=ext,
+                    error=str(docling_err),
+                )
+                raise RuntimeError(
+                    f"Could not parse .{ext} document: {docling_err}"
+                ) from docling_err
+
+            logger.warning(
+                "Docling conversion failed, using fallback text decoding",
+                file_extension=ext,
+                error=str(docling_err),
+            )
             text = file_bytes.decode("utf-8", errors="ignore")
             return text, []
 

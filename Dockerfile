@@ -37,8 +37,21 @@ WORKDIR /app
 # builds past 20 minutes for zero benefit on a machine with no GPU. Installing the
 # CPU wheel first means pip sees torch already satisfied when it later resolves
 # docling's `torch<3.0.0,>=2.2.2`, so the CUDA variant is never considered.
+#
+# torchvision MUST be installed here alongside torch, from the same index. Installing
+# torch alone leaves pip to satisfy docling's torchvision requirement from PyPI, which
+# ships a build compiled against a different torch — the two then load but their C++
+# operators don't match, and the first call fails with
+# "operator torchvision::nms does not exist".
+#
+# That failure is quiet and expensive: Docling catches it, falls back to decoding the
+# PDF's raw bytes as text, and ingestion "succeeds" — producing chunks of binary
+# garbage that embed and retrieve fine but answer nothing. Verified live 2026-09-18:
+# a PDF ingested as 173 unusable chunks, and the only visible symptom was the model
+# correctly replying "insufficient evidence".
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+    && pip install --no-cache-dir torch torchvision \
+       --index-url https://download.pytorch.org/whl/cpu
 
 COPY pyproject.toml README.md ./
 COPY api/ ./api/
