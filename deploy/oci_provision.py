@@ -143,20 +143,45 @@ def main() -> int:
         attempt = 0
         backoff = 60.0
 
-        def retryable(err: oci.exceptions.ServiceError) -> str | None:
+        def retryable(err: Exception) -> str | None:
             """Classify errors worth waiting out, vs. ones that need a human.
 
-            Two distinct conditions look similar and both mean "try again later":
-            a genuine capacity shortage (500 / "Out of host capacity"), and Oracle
-            rate-limiting the launch calls themselves (429 "Too many requests for
-            the user"). An earlier version matched on the word "capacity" alone and
-            so crashed on the 429, which says nothing about capacity.
+            Three distinct conditions all mean "try again later":
+
+            1. A genuine capacity shortage (500 / "Out of host capacity").
+            2. Oracle rate-limiting the launch calls themselves (429 "Too many
+               requests for the user") — which says nothing about capacity, so an
+               earlier version that matched on the word "capacity" crashed on it.
+            3. The API being unreachable at all — ConnectTimeout, read timeout, DNS
+               failure. This one is NOT a ServiceError, so it bypassed the handler
+               entirely and killed the whole watcher. A laptop on home wifi drops a
+               connection now and then; losing an unattended overnight run to a
+               two-second blip is the difference between waking up to a deployed
+               service and waking up to a dead process.
             """
-            msg = str(err.message).lower()
-            if err.status == 429:
-                return "rate-limited"
-            if err.status in (500, 502, 503) and ("capacity" in msg or "out of host" in msg):
-                return "no capacity"
+            if isinstance(err, oci.exceptions.ServiceError):
+                msg = str(err.message).lower()
+                if err.status == 429:
+                    return "rate-limited"
+                if err.status in (500, 502, 503) and ("capacity" in msg or "out of host" in msg):
+                    return "no capacity"
+                return None
+
+            # Matched on OSError rather than on the SDK's exception names, because
+            # those names lie. The SDK vendors its own copy of `requests`, so
+            # `oci.exceptions.ConnectTimeout` inherits from the VENDORED
+            # `requests.exceptions.RequestException`, which is a different class
+            # object from `oci.exceptions.RequestException` — verified:
+            # issubclass(ConnectTimeout, oci.exceptions.RequestException) is False
+            # despite "RequestException" appearing in its MRO. An `except
+            # oci.exceptions.RequestException` clause therefore never fires for a
+            # connect timeout, which is exactly how an unattended run died. Both
+            # hierarchies do bottom out at OSError, so that is the honest common
+            # ancestor to catch: it covers connect/read timeouts, DNS failures and
+            # dropped connections without depending on which copy of the library
+            # raised them.
+            if isinstance(err, OSError):
+                return "network unreachable"
             return None
 
         while instance is None:
@@ -179,27 +204,17 @@ def main() -> int:
                     )).data
                     log(f"accepted at {ocpus} OCPU / {mem}GB")
                     break
-                except oci.exceptions.ServiceError as e:
+                except Exception as e:
                     reason = retryable(e)
                     if reason is None:
                         raise
                     log(f"  {reason} at {ocpus}/{mem}")
-                    if reason == "rate-limited":
+                    if reason in ("rate-limited", "network unreachable"):
                         # Backing off immediately rather than walking the rest of the
                         # ladder: further calls right now would only deepen the limit.
                         break
                     # Space out ladder rungs so a burst of rejections doesn't itself
                     # trigger the rate limiter.
-                    time.sleep(5)
-                except oci.exceptions.RequestException as e:
-                    # A DNS blip, Wi-Fi drop, or VPN transition on THIS machine — the
-                    # request never reached Oracle at all, so it says nothing about
-                    # capacity. Confirmed live 2026-09-18: a ~35-minute retry run was
-                    # silently killed by exactly this (NameResolutionError), which
-                    # this except clause did not previously catch — ServiceError only
-                    # covers responses Oracle actually sent. Treat it exactly like a
-                    # retryable rejection rather than letting it end the whole run.
-                    log(f"  local network error at {ocpus}/{mem}: {type(e).__name__}")
                     time.sleep(5)
 
             if instance is None:
