@@ -34,6 +34,18 @@ from api.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
+# Upper bound on how long a spoken turn may wait for a tool before the session
+# answers with an apology instead of silence. Sized per tier rather than globally:
+# search_documents is one retrieval round trip (measured ~1s warm, ~6s cold), while
+# deep_research deliberately runs the full critic-gated text graph and is expected
+# to take several seconds. A single shared value would either cut deep_research off
+# mid-answer or let a stuck fast search hang for far too long.
+TOOL_TIMEOUT_SECONDS: dict[str, float] = {
+    "search_documents": 15.0,
+    "deep_research": 45.0,
+}
+DEFAULT_TOOL_TIMEOUT_SECONDS = 20.0
+
 INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 24000
 
@@ -120,7 +132,39 @@ class VoiceSession:
         args = dict(call.args or {})
         await self.emit("tool_start", {"tool": call.name, "query": args.get("query", "")})
 
-        result = await self.toolbox.dispatch(call.name, args)
+        # A spoken turn cannot tolerate an unbounded wait. Gemini Live stays SILENT
+        # until it receives a function response, so a tool that hangs produces no
+        # audio at all — the user hears nothing and assumes the app is broken.
+        #
+        # Observed live 2026-09-21: the first question of a call could sit silent for
+        # 2+ minutes. Retrieval's own cold start is only ~5s (measured: 5.96s first
+        # call vs 1.07s warm), but deep_research runs the full text graph, and on a
+        # cold process the model router has no latency data yet and can walk into
+        # several degraded models in turn, each paying its own timeout. Nothing
+        # bounded that, because nothing here had a timeout at all.
+        #
+        # Timing out into a spoken apology is strictly better than silence: the user
+        # learns something went slow and can simply ask again.
+        budget = TOOL_TIMEOUT_SECONDS.get(call.name, DEFAULT_TOOL_TIMEOUT_SECONDS)
+        try:
+            result = await asyncio.wait_for(
+                self.toolbox.dispatch(call.name, args), timeout=budget
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Voice tool exceeded its budget; answering instead of staying silent",
+                tool=call.name,
+                timeout_seconds=budget,
+            )
+            result = {
+                "status": "timeout",
+                # Phrased for speech — the model reads this out, so it must sound
+                # like a sentence a person would say, not an error code.
+                "summary": (
+                    "That search took longer than expected and I stopped waiting. "
+                    "Please ask me again."
+                ),
+            }
 
         await self.emit(
             "tool_end",

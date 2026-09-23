@@ -98,6 +98,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.warning("flashrank_warmup_failed", error=str(exc))
 
+    # Same reasoning as the FlashRank warm-up, applied to the rest of the retrieval
+    # path. The embedding client, the Pinecone async index and the Cohere reranker
+    # client are all built lazily on first use, so whoever asks the first question
+    # pays for constructing all three. Measured 2026-09-21: 5.96s for the first
+    # retrieval versus 1.07s once warm.
+    #
+    # That fell hardest on voice, where the cost is not just slow but confusing —
+    # Gemini Live stays silent until its tool returns, so the opening question of a
+    # call produced dead air while a text user would merely have seen a spinner.
+    #
+    # Deliberately a background task rather than awaited: this makes the FIRST
+    # request fast, it is not a health precondition, and blocking on it would delay
+    # the port opening and hand orchestrators a slow-starting container.
+    async def _warm_retrieval_path() -> None:
+        try:
+            from retrieval.pipeline import execute_retrieval
+
+            await execute_retrieval(
+                query="warmup",
+                tenant_id="__warmup__",  # no such tenant: no documents, so this
+                                          # costs one empty query, not real work
+                top_k=1,
+                enable_query_rewrite=False,  # skip the LLM round trip
+                enable_hybrid=True,
+                enable_rerank=True,
+            )
+            logger.info("retrieval_path_warmed")
+        except Exception as exc:
+            # Never fatal — a cold first request is slow, not broken.
+            logger.warning("retrieval_warmup_failed", error=str(exc))
+
+    asyncio.create_task(_warm_retrieval_path())
+
     logger.info("startup_complete")
     yield
 

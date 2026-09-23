@@ -5,6 +5,7 @@ only thing standing between a fast spoken reply and a confidently wrong one,
 since the post-hoc citation critic cannot run inline in a voice turn.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -452,3 +453,72 @@ def test_every_advertised_voice_resolves_to_itself():
     something the allowlist will actually accept back."""
     for name in AVAILABLE_VOICES:
         assert resolve_voice(name) == name
+
+
+# ── Tool timeouts (added 2026-09-21) ────────────────────────────
+#
+# Gemini Live stays SILENT until it receives a function response, so a tool that
+# hangs produces no audio at all. Observed live: the first question of a call could
+# sit silent for 2+ minutes, and interrupting was the only way to get a reply.
+# Timing out into a spoken apology is strictly better than dead air.
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_tool_still_produces_a_spoken_response():
+    from agents.voice import session as session_mod
+
+    class _Toolbox:
+        citations: list = []
+
+        async def dispatch(self, name, args):
+            await asyncio.sleep(30)  # never returns within the budget
+            return {"status": "ok"}
+
+    sent: list = []
+
+    class _Session:
+        async def send_tool_response(self, function_responses):
+            sent.append(function_responses[0])
+
+    vs = session_mod.VoiceSession(_Toolbox(), emit=AsyncMock())
+    vs._session = _Session()
+
+    with patch.dict(session_mod.TOOL_TIMEOUT_SECONDS, {"search_documents": 0.05}):
+        await vs._run_tool(SimpleNamespace(id="c1", name="search_documents", args={"query": "x"}))
+
+    assert sent, "the model was left with no tool response and would stay silent"
+    assert sent[0].response["status"] == "timeout"
+    assert sent[0].response["summary"], "timeout response must carry speakable text"
+
+
+@pytest.mark.asyncio
+async def test_a_fast_tool_is_not_cut_off():
+    from agents.voice import session as session_mod
+
+    class _Toolbox:
+        citations: list = []
+
+        async def dispatch(self, name, args):
+            return {"status": "ok", "summary": "real answer"}
+
+    sent: list = []
+
+    class _Session:
+        async def send_tool_response(self, function_responses):
+            sent.append(function_responses[0])
+
+    vs = session_mod.VoiceSession(_Toolbox(), emit=AsyncMock())
+    vs._session = _Session()
+
+    await vs._run_tool(SimpleNamespace(id="c1", name="search_documents", args={"query": "x"}))
+
+    assert sent[0].response["status"] == "ok"
+    assert sent[0].response["summary"] == "real answer"
+
+
+def test_deep_research_gets_a_longer_budget_than_a_plain_search():
+    """Tier 2 deliberately runs the full critic-gated graph; one shared timeout
+    would either cut it off mid-answer or let a stuck search hang far too long."""
+    from agents.voice.session import TOOL_TIMEOUT_SECONDS
+
+    assert TOOL_TIMEOUT_SECONDS["deep_research"] > TOOL_TIMEOUT_SECONDS["search_documents"]

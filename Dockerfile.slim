@@ -1,0 +1,96 @@
+# OmniMind — slim image for memory-constrained hosts (512MB free tiers).
+#
+# Same application as Dockerfile, minus the `full` extra: no Docling, no PyTorch, no
+# transformers, no FlashRank. That takes the image from ~3.7GB to a few hundred MB
+# and idle memory from 256MB to well under that, which is what makes a 512MB host
+# viable at all — measured peak on the full image was 792MB, entirely from Docling
+# loading torch during PDF parsing.
+#
+# What changes functionally: documents are extracted by parsing/light_parsers.py
+# (text faithful, tables flattened to cell text, no figure extraction), and
+# reranking is Cohere-only with no local fallback. Hybrid retrieval, the agent
+# graph, citations, the citation critic, memory and voice mode are unchanged,
+# because that work happens against Gemini/Pinecone/Cohere rather than locally.
+#
+# Postgres is NOT bundled here: free hosts provide a managed one, and running it
+# in-container would waste memory this image exists to save. Set DATABASE_URL.
+
+FROM node:20-slim AS frontend
+
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+
+FROM python:3.11-slim AS deps
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# No explicit torch pre-install here, unlike the full image. That step exists there
+# only to stop pip resolving docling's torch requirement to the CUDA build; with
+# docling absent, nothing requests torch at all.
+COPY pyproject.toml README.md ./
+COPY api/ ./api/
+COPY security/ ./security/
+COPY ingestion/ ./ingestion/
+COPY parsing/ ./parsing/
+COPY chunking/ ./chunking/
+COPY retrieval/ ./retrieval/
+COPY reranking/ ./reranking/
+COPY agents/ ./agents/
+COPY core/ ./core/
+COPY model_gateway/ ./model_gateway/
+COPY evaluation/ ./evaluation/
+COPY observability/ ./observability/
+COPY workers/ ./workers/
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
+
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    STORAGE_BACKEND=local \
+    STORAGE_LOCAL_PATH=/data/objects
+
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+COPY --from=deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+COPY api/ ./api/
+COPY security/ ./security/
+COPY ingestion/ ./ingestion/
+COPY parsing/ ./parsing/
+COPY chunking/ ./chunking/
+COPY retrieval/ ./retrieval/
+COPY reranking/ ./reranking/
+COPY agents/ ./agents/
+COPY core/ ./core/
+COPY model_gateway/ ./model_gateway/
+COPY evaluation/ ./evaluation/
+COPY observability/ ./observability/
+COPY workers/ ./workers/
+COPY infrastructure/alembic.ini ./infrastructure/alembic.ini
+COPY infrastructure/migrations/ ./infrastructure/migrations/
+COPY --from=frontend /build/dist ./frontend/dist
+
+COPY scripts/start-slim.sh /usr/local/bin/start-slim.sh
+RUN chmod +x /usr/local/bin/start-slim.sh \
+    && mkdir -p /data/objects \
+    && chown -R appuser:appuser /data /app
+
+USER appuser
+ENV HOME=/home/appuser
+
+EXPOSE 8000
+
+CMD ["/usr/local/bin/start-slim.sh"]

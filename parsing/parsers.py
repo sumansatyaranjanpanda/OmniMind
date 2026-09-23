@@ -149,6 +149,38 @@ def _docling_convert_sync(file_bytes: bytes, filename: str) -> tuple[str, list[t
 
             return markdown_text, figures
         except Exception as docling_err:
+            # Second choice, not a silent downgrade: extract the text with a
+            # dependency-light parser. Docling is absent by design in the slim
+            # deployment image (it carries PyTorch/transformers/timm, ~3GB and
+            # several hundred MB resident — more than a 512MB host has), so this
+            # is the normal path there rather than an error path.
+            #
+            # What is lost is stated plainly in parsing/light_parsers.py: tables
+            # arrive as cell text rather than structure, and figures are not
+            # extracted, so nothing goes for vision captioning. Everything
+            # downstream — chunking, retrieval, citations, the critic — is
+            # unchanged and simply sees plainer source text.
+            from parsing import light_parsers
+
+            if light_parsers.can_parse(ext):
+                try:
+                    text = light_parsers.extract_text(file_bytes, ext)
+                    logger.info(
+                        "Parsed with the lightweight extractor (Docling unavailable)",
+                        file_extension=ext,
+                        chars=len(text),
+                    )
+                    return text, []
+                except Exception as light_err:
+                    logger.error(
+                        "Lightweight extraction also failed",
+                        file_extension=ext,
+                        error=str(light_err),
+                    )
+                    raise RuntimeError(
+                        f"Could not parse .{ext} document: {light_err}"
+                    ) from light_err
+
             # Decoding a PDF/DOCX/XLSX as UTF-8 does not "degrade gracefully" — it
             # produces mojibake that chunks, embeds and retrieves perfectly happily
             # while meaning nothing. Ingestion then reports success and the failure

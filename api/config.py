@@ -7,6 +7,7 @@ scattered across the codebase.
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,30 @@ class Settings(BaseSettings):
 
     # ── Postgres ────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://omnimind:omnimind@localhost:5432/omnimind"
+
+    @field_validator("database_url")
+    @classmethod
+    def _force_async_driver(cls, value: str) -> str:
+        """Normalize a managed provider's connection string to the async driver.
+
+        Render, Heroku, Railway and friends hand out `postgresql://…` (and Heroku
+        still emits the legacy `postgres://`). SQLAlchemy maps both to the DEFAULT
+        driver — synchronous psycopg2 — and `create_async_engine` then rejects it at
+        import time, which on a managed host surfaces as an unexplained boot loop
+        rather than a readable error.
+
+        Normalizing here rather than at the call site means every consumer benefits:
+        the app engine, Alembic (which reads settings.database_url directly), and any
+        script. Only the scheme is touched; credentials and query parameters such as
+        `?sslmode=require` are left exactly as the provider supplied them.
+        """
+        for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
+            if value.startswith(prefix):
+                return value
+        for legacy in ("postgresql://", "postgres://"):
+            if value.startswith(legacy):
+                return "postgresql+asyncpg://" + value[len(legacy):]
+        return value
 
     # ── Redis ───────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
